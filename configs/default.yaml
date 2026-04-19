@@ -1,0 +1,89 @@
+# Flood Inundation Mapping — Default Configuration
+
+# --- Paths ---
+paths:
+  sen1floods11_dir: "data/sen1floods11"
+  sen12flood_dir: "data/sen12flood"
+  geo_features_dir: "data/geo_features"
+  checkpoints_dir: "checkpoints"
+
+# --- Image ---
+image:
+  size: 512
+  sar_channels: 2  # VV + VH
+
+# --- SegFormer Architecture ---
+segformer:
+  in_channels: 2
+  num_classes: 2
+  patch_sizes: [4, 3, 3, 3]         # stage 1 non-overlap, stages 2-4 overlap
+  strides: [4, 2, 2, 2]
+  embed_dims: [32, 64, 160, 256]
+  num_heads: [1, 2, 5, 8]
+  sr_ratios: [8, 4, 2, 1]
+  num_blocks: [2, 2, 2, 2]
+  mlp_ratios: [4, 4, 4, 4]
+  decoder_dim: 256
+  # MLA-specific
+  mla_rank_divisor: 4                # d_c = embed_dim // 4
+
+# --- Training ---
+training:
+  batch_size: 4
+  epochs: 50
+  learning_rate: 6.0e-5
+  weight_decay: 0.01
+  scheduler: "polynomial"           # polynomial LR decay
+  poly_power: 0.9
+  warmup_epochs: 5
+  class_weights: [1.0, 5.0]         # [no-flood, flood] — flood is minority
+  use_amp: true                      # mixed precision
+  num_workers: 4
+  seed: 42
+
+# --- RF / XGBoost ---
+rf:
+  n_estimators: 200
+  max_depth: 20
+  min_samples_leaf: 10
+  n_jobs: -1
+  random_state: 42
+
+xgb:
+  n_estimators: 300
+  max_depth: 8
+  learning_rate: 0.1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  tree_method: "auto"               # "gpu_hist" if GPU available
+  random_state: 42
+
+# --- Geo Feature Extraction ---
+geo_features:
+  pixel_subsample: 1000000           # 1M pixels for RF/XGB training
+  features:
+    - "dem"
+    - "slope"
+    - "twi"
+    - "ndvi"
+    - "distance_to_water"
+    - "land_cover"
+
+# --- Fusion ---
+fusion:
+  method: "weighted_average"         # or "stacking"
+  vit_weight: 0.6
+  ml_weight: 0.4
+
+# --- Data Splits ---
+splits:
+  # Sen1Floods11 official splits
+  train_regions: ["Bolivia", "Ghana", "India", "Mekong", "Nigeria", "Pakistan", "Paraguay", "Somalia", "Spain", "Sri-Lanka", "USA"]
+  val_ratio: 0.15                    # split from training tiles
+  test_regions: ["Bolivia", "Ghana", "India", "Mekong", "Nigeria", "Pakistan", "Paraguay", "Somalia", "Spain", "Sri-Lanka", "USA"]
+
+# --- Augmentation ---
+augmentation:
+  random_flip: true
+  random_rotate90: true
+  # no elastic/color augmentation — geospatially unsafe
