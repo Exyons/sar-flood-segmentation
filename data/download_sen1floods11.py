@@ -103,6 +103,62 @@ def verify_dataset(data_dir: str) -> None:
         print(f"  {k}: {v} files")
 
 
+DEFAULT_TRAIN_REGIONS = ("USA", "Pakistan", "Sri-Lanka")
+DEFAULT_VAL_REGIONS = ("India",)
+
+
+def build_splits(
+    data_dir: str | Path = "data/sen1floods11",
+    train_regions: tuple[str, ...] = DEFAULT_TRAIN_REGIONS,
+    val_regions: tuple[str, ...] = DEFAULT_VAL_REGIONS,
+    out_dir: str | Path | None = None,
+) -> dict[str, Path]:
+    """Walk ``data/sen1floods11/data/<Region>/*_S1Hand.tif`` and write pretrain CSVs.
+
+    CSV rows are ``<rel_s1_path>,<rel_label_path>`` relative to
+    ``data/sen1floods11/data`` — the same root passed to Sen1FloodsDataset.
+
+    Returns a dict mapping split name → output CSV path.
+    """
+    data_root = Path(data_dir)
+    tiles_root = data_root / "data"
+    if not tiles_root.exists():
+        raise FileNotFoundError(f"Sen1Floods11 tiles root missing: {tiles_root}")
+
+    out_dir = Path(out_dir) if out_dir else data_root / "splits"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def gather(regions: tuple[str, ...]) -> list[tuple[str, str]]:
+        rows: list[tuple[str, str]] = []
+        for region in regions:
+            region_dir = tiles_root / region
+            if not region_dir.exists():
+                print(f"  WARN: region dir missing, skipping: {region_dir}")
+                continue
+            for s1 in sorted(region_dir.glob("*_S1Hand.tif")):
+                label = s1.with_name(s1.name.replace("_S1Hand.tif", "_LabelHand.tif"))
+                if not label.exists():
+                    continue
+                s1_rel = f"{region}/{s1.name}"
+                label_rel = f"{region}/{label.name}"
+                rows.append((s1_rel, label_rel))
+        return rows
+
+    train_rows = gather(train_regions)
+    val_rows = gather(val_regions)
+
+    outputs: dict[str, Path] = {}
+    for name, rows in (("pretrain_train", train_rows), ("pretrain_val", val_rows)):
+        out_path = out_dir / f"{name}.csv"
+        with open(out_path, "w") as f:
+            for s1_rel, label_rel in rows:
+                f.write(f"{s1_rel},{label_rel}\n")
+        outputs[name] = out_path
+        print(f"  wrote {out_path} — {len(rows)} tiles")
+
+    return outputs
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download Sen1Floods11 dataset")
     parser.add_argument(
@@ -111,6 +167,11 @@ def main():
         help="Path to config YAML",
     )
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument(
+        "--build-splits",
+        action="store_true",
+        help="Walk on-disk regions and emit pretrain_train / pretrain_val CSVs",
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -118,6 +179,9 @@ def main():
 
     data_dir = cfg["paths"]["sen1floods11_dir"]
 
+    if args.build_splits:
+        build_splits(data_dir)
+        return
     if args.verify_only:
         verify_dataset(data_dir)
     else:

@@ -1,19 +1,26 @@
-"""Full SegFormer model: encoder + decode head.
+"""SegFormer model dispatcher.
 
-Two configurations via use_mla flag:
-    SegFormer(use_mla=False) → Standard ViT (EfficientSelfAttention)
-    SegFormer(use_mla=True)  → MLA ViT (MLASelfAttention with low-rank KV)
+Three kinds:
+    kind="scratch" → from-scratch SegFormer (EfficientSelfAttention)
+    kind="mla"     → from-scratch SegFormer with MLA (low-rank KV) attention
+    kind="hf"      → HuggingFace SegformerForSemanticSegmentation (pretrained)
+
+The scratch / mla variants are kept as backup. The HF path is the primary
+route for pre-train + fine-tune.
 """
+
+from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .segformer.encoder import MixTransformerEncoder
 from .segformer.decode_head import MLPDecodeHead
 
 
 class SegFormer(nn.Module):
-    """SegFormer-B0 scale segmentation model."""
+    """From-scratch SegFormer-B0 scale. Used for kind=scratch and kind=mla."""
 
     def __init__(
         self,
@@ -32,7 +39,6 @@ class SegFormer(nn.Module):
     ):
         super().__init__()
         self.use_mla = use_mla
-
         self.encoder = MixTransformerEncoder(
             in_channels=in_channels,
             embed_dims=list(embed_dims),
@@ -45,7 +51,6 @@ class SegFormer(nn.Module):
             use_mla=use_mla,
             rank_divisor=rank_divisor,
         )
-
         self.decode_head = MLPDecodeHead(
             embed_dims=list(embed_dims),
             decoder_dim=decoder_dim,
@@ -53,25 +58,74 @@ class SegFormer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: (B, C, H, W) — input SAR image
-        Returns:
-            logits: (B, num_classes, H, W)
-        """
         target_size = (x.shape[2], x.shape[3])
         features = self.encoder(x)
-        logits = self.decode_head(features, target_size)
-        return logits
+        return self.decode_head(features, target_size)
 
     def count_parameters(self) -> int:
-        """Total trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def param_summary(self) -> str:
-        """Human-readable parameter count."""
         total = self.count_parameters()
         variant = "MLA" if self.use_mla else "Standard"
         if total >= 1_000_000:
             return f"SegFormer ({variant}): {total / 1e6:.2f}M params"
         return f"SegFormer ({variant}): {total / 1e3:.1f}K params"
+
+
+class HFSegFormer(nn.Module):
+    """Wrapper around HuggingFace SegformerForSemanticSegmentation.
+
+    HF outputs logits at H/4 x W/4. We upsample to input resolution so the
+    rest of the pipeline (loss, metrics, saving) can treat it like any other
+    segmentation model with full-res logits.
+    """
+
+    def __init__(self, pretrained_id: str = "nvidia/mit-b2", num_labels: int = 2):
+        super().__init__()
+        from transformers import SegformerForSemanticSegmentation
+
+        self.pretrained_id = pretrained_id
+        self.model = SegformerForSemanticSegmentation.from_pretrained(
+            pretrained_id,
+            num_labels=num_labels,
+            ignore_mismatched_sizes=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h, w = x.shape[2], x.shape[3]
+        out = self.model(pixel_values=x)
+        logits = out.logits  # (B, num_labels, H/4, W/4)
+        return F.interpolate(logits, size=(h, w), mode="bilinear", align_corners=False)
+
+    def count_parameters(self) -> int:
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    def param_summary(self) -> str:
+        total = self.count_parameters()
+        return f"SegFormer (HF {self.pretrained_id}): {total / 1e6:.2f}M params"
+
+
+def build(
+    kind: str = "hf",
+    num_labels: int = 2,
+    pretrained_id: str = "nvidia/mit-b2",
+    **kwargs,
+) -> nn.Module:
+    """Build a SegFormer by kind.
+
+    Args:
+        kind:          "scratch" | "mla" | "hf"
+        num_labels:    number of output classes (binary flood → 2)
+        pretrained_id: HF hub id for kind="hf"
+        **kwargs:      forwarded to SegFormer for scratch/mla (in_channels, embed_dims, etc.)
+    """
+    if kind == "scratch":
+        kwargs.pop("use_mla", None)
+        return SegFormer(num_classes=num_labels, use_mla=False, **kwargs)
+    if kind == "mla":
+        kwargs.pop("use_mla", None)
+        return SegFormer(num_classes=num_labels, use_mla=True, **kwargs)
+    if kind == "hf":
+        return HFSegFormer(pretrained_id=pretrained_id, num_labels=num_labels)
+    raise ValueError(f"Unknown model kind: {kind!r} (expected scratch|mla|hf)")

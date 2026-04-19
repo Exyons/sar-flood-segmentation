@@ -1,0 +1,29 @@
+# Stage 1: pre-train HuggingFace SegFormer (MiT-B2) on Sen1Floods11.
+# Train regions: USA, Pakistan, Sri-Lanka.
+# Val region:    India (held out — baseline for Stage-2 fine-tune gain).
+
+model:
+  kind: hf
+  num_labels: 2
+  pretrained_id: nvidia/mit-b2
+  # init_from: null   # start from MiT-B2 ImageNet weights
+
+data:
+  root:      data/sen1floods11/data
+  train_csv: data/sen1floods11/splits/pretrain_train.csv
+  val_csv:   data/sen1floods11/splits/pretrain_val.csv
+  label_key: LabelHand
+
+training:
+  epochs: 60
+  lr: 6.0e-5
+  weight_decay: 0.01
+  batch_size: 4
+  num_workers: 4
+  class_weights: [1.0, 5.0]     # [dry, flood] — flood is minority
+  poly_power: 0.9
+  warmup_epochs: 5
+  use_amp: true
+  seed: 42
+
+ckpt_dir: checkpoints/segformer_hf_pretrain

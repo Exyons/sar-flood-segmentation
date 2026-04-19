@@ -1,14 +1,27 @@
 """Model comparison and metrics computation.
 
-Computes IoU, F1, Precision, Recall, Accuracy across all 6 model variants.
+Two modes:
 
-Usage:
-    uv run python evaluate.py --config configs/default.yaml                 # Single model
-    uv run python evaluate.py --config configs/default.yaml --use_mla       # MLA variant
-    uv run python evaluate.py --config configs/default.yaml --compare       # All 6 models
+1. Comparison of all 6 classical / ViT / fusion variants on the legacy
+   FloodDataset (RF / XGBoost + from-scratch SegFormer):
+
+       uv run python evaluate.py --config configs/default.yaml --compare
+
+2. Checkpoint evaluation on a CSV split with per-region (or per-event)
+   breakdown — used for HF pre-train / India fine-tune:
+
+       uv run python evaluate.py \
+         --ckpt checkpoints/segformer_hf_india_ft/best.pt \
+         --split data/india_floods/splits/val.csv \
+         --data-root data/india_floods
+
+Group key is extracted from each tile's filename (first ``_``-separated
+token of ``Path(s1_rel).stem``) — ``India`` / ``USA`` for Sen1Floods11,
+``assam2022`` / ``kerala2018`` / … for India GEE exports.
 """
 
 import argparse
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -17,8 +30,8 @@ import torch.nn.functional as F
 import yaml
 from tqdm import tqdm
 
-from data.dataset import get_dataloaders
-from models.segformer_model import SegFormer
+from data.dataset import Sen1FloodsDataset, get_dataloaders
+from models.segformer_model import SegFormer, build as build_model
 from models.rf_model import RFFloodModel
 from models.xgb_model import XGBFloodModel
 from fusion.fuse import weighted_average_fusion
@@ -179,12 +192,138 @@ def print_comparison_table(results: dict[str, dict]):
     print("=" * 78)
 
 
+def _group_key(tile_name: str) -> str:
+    """Extract the grouping key (region / event) from a tile filename stem."""
+    return tile_name.split("_", 1)[0] if "_" in tile_name else tile_name
+
+
+def _build_from_ckpt(ckpt_path: Path, device: torch.device):
+    """Rebuild a model from a training checkpoint and load its weights."""
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    cfg = ckpt.get("config")
+    if cfg is None or "model" not in cfg:
+        raise ValueError(
+            f"Checkpoint {ckpt_path} has no ``config.model`` block — "
+            "this evaluator expects the new-style YAML configs."
+        )
+    model_cfg = dict(cfg["model"])
+    model_cfg.pop("init_from", None)
+    model = build_model(**model_cfg).to(device)
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    model.train(False)
+    epoch = ckpt.get("epoch", "?")
+    print(f"Loaded checkpoint {ckpt_path} (epoch {epoch})")
+    return model, cfg
+
+
+@torch.no_grad()
+def eval_ckpt_on_split(
+    ckpt_path: str | Path,
+    split_csv: str | Path,
+    data_root: str | Path,
+    label_key: str | None = "LabelHand",
+    batch_size: int = 4,
+    num_workers: int = 4,
+    device: torch.device | None = None,
+) -> dict:
+    """Run a checkpoint over a CSV split. Return overall + per-group metrics."""
+    from torch.utils.data import DataLoader
+
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, _ = _build_from_ckpt(Path(ckpt_path), device)
+
+    ds = Sen1FloodsDataset(
+        csv_path=split_csv,
+        data_root=data_root,
+        label_key=label_key,
+        augment=False,
+    )
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False,
+                        num_workers=num_workers, pin_memory=True)
+
+    overall = Metrics()
+    per_group: dict[str, Metrics] = defaultdict(Metrics)
+
+    for batch in tqdm(loader, desc=f"  eval {Path(ckpt_path).name}"):
+        image = batch["image"].to(device, non_blocking=True)
+        label = batch["label"].numpy()  # (B, H, W)
+        logits = model(image)
+        pred = logits.argmax(dim=1).cpu().numpy()
+
+        valid = label != -1
+        names = batch["tile_name"]
+
+        for i in range(pred.shape[0]):
+            v = valid[i]
+            p = pred[i][v]
+            t = label[i][v]
+            overall.update(p, t)
+            per_group[_group_key(names[i])].update(p, t)
+
+    return {
+        "overall": overall.summary(),
+        "per_group": {k: m.summary() for k, m in per_group.items()},
+        "n_tiles": len(ds),
+    }
+
+
+def print_grouped_results(result: dict, title: str = "Evaluation") -> None:
+    overall = result["overall"]
+    groups = result["per_group"]
+    print(f"\n{title}  ({result['n_tiles']} tiles)")
+    print("=" * 78)
+    print(f"{'Group':<20} {'IoU':>8} {'F1':>8} {'Prec':>8} {'Recall':>8} {'Acc':>8}")
+    print("-" * 78)
+    for k in sorted(groups):
+        m = groups[k]
+        print(f"{k:<20} {m['IoU']:>8.4f} {m['F1']:>8.4f} "
+              f"{m['Precision']:>8.4f} {m['Recall']:>8.4f} {m['Accuracy']:>8.4f}")
+    print("-" * 78)
+    print(f"{'OVERALL':<20} {overall['IoU']:>8.4f} {overall['F1']:>8.4f} "
+          f"{overall['Precision']:>8.4f} {overall['Recall']:>8.4f} "
+          f"{overall['Accuracy']:>8.4f}")
+    print("=" * 78)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Flood model comparison")
+    parser = argparse.ArgumentParser(description="Flood model evaluation")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--use_mla", action="store_true")
-    parser.add_argument("--compare", action="store_true", help="Compare all 6 models")
+    parser.add_argument("--compare", action="store_true", help="Compare all 6 legacy models")
+
+    # Checkpoint + CSV split mode (per-region / per-event breakdown)
+    parser.add_argument("--ckpt", default=None,
+                        help="Checkpoint to evaluate (HF pre-train / India fine-tune).")
+    parser.add_argument("--split", default=None,
+                        help="CSV split to evaluate on.")
+    parser.add_argument("--data-root", default=None,
+                        help="Root the CSV paths are relative to. "
+                             "Defaults inferred from the split path.")
+    parser.add_argument("--label-key", default="LabelHand",
+                        help="Label-key override; use 'none' for CSV-driven label paths.")
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--num-workers", type=int, default=4)
     args = parser.parse_args()
+
+    if args.ckpt and args.split:
+        split_path = Path(args.split)
+        if args.data_root:
+            data_root = args.data_root
+        elif "india_floods" in split_path.parts:
+            data_root = "data/india_floods"
+        else:
+            data_root = "data/sen1floods11/data"
+        label_key = None if args.label_key.lower() == "none" else args.label_key
+        result = eval_ckpt_on_split(
+            ckpt_path=args.ckpt,
+            split_csv=args.split,
+            data_root=data_root,
+            label_key=label_key,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+        )
+        print_grouped_results(result, title=f"{Path(args.ckpt).stem} on {split_path.name}")
+        return
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)

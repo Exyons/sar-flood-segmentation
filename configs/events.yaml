@@ -1,0 +1,52 @@
+# India flood events for GEE weak-label extraction.
+#
+# Each event defines:
+#   bbox       — AOI in lon/lat (min_lon, min_lat, max_lon, max_lat)
+#   s1_start   — Sentinel-1 search window start (floodwater present)
+#   s1_end     — Sentinel-1 search window end
+#   s2_start   — Sentinel-2 search window for weak-label generation
+#   s2_end     — Sentinel-2 search window end
+#
+# Tip: S2 window should overlap or immediately bracket the S1 window.
+# Broaden S2 slightly to tolerate cloud cover.
+
+events:
+
+  assam2022:
+    name: "Assam 2022 monsoon floods"
+    bbox: [89.5, 24.0, 96.0, 27.5]
+    s1_start: "2022-06-15"
+    s1_end:   "2022-07-20"
+    s2_start: "2022-06-10"
+    s2_end:   "2022-07-25"
+
+  bihar2021:
+    name: "Bihar 2021 monsoon floods"
+    bbox: [83.0, 24.5, 88.5, 27.0]
+    s1_start: "2021-07-20"
+    s1_end:   "2021-08-25"
+    s2_start: "2021-07-15"
+    s2_end:   "2021-08-30"
+
+  kerala2018:
+    name: "Kerala 2018 floods"
+    bbox: [74.5, 8.0, 77.5, 12.5]
+    s1_start: "2018-08-10"
+    s1_end:   "2018-08-25"
+    s2_start: "2018-08-01"
+    s2_end:   "2018-08-31"
+
+  chennai2015:
+    name: "Chennai 2015 floods"
+    bbox: [79.8, 12.5, 80.5, 13.5]
+    s1_start: "2015-11-25"
+    s1_end:   "2015-12-15"
+    s2_start: "2015-11-15"
+    s2_end:   "2015-12-31"
+
+# Export settings shared across events
+export:
+  scale_m: 10
+  tile_size_px: 512
+  drive_folder: "gee_exports"
+  crs: "EPSG:4326"

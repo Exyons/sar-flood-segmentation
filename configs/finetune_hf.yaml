@@ -1,0 +1,31 @@
+# Stage 2: fine-tune HF SegFormer on GEE-exported India flood events.
+# Init from Stage-1 pre-train checkpoint. Lower LR, fewer epochs.
+
+model:
+  kind: hf
+  num_labels: 2
+  pretrained_id: nvidia/mit-b2
+  init_from: checkpoints/segformer_hf_pretrain/best.pt
+
+data:
+  root:      data/india_floods
+  train_csv: data/india_floods/splits/train.csv
+  val_csv:   data/india_floods/splits/val.csv
+  # India GEE labels live in a separate subdir and don't use the
+  # _S1Hand/_<key>.tif naming convention, so we honor the CSV label column
+  # as-is by turning off automatic derivation:
+  label_key: null
+
+training:
+  epochs: 25
+  lr: 1.0e-5
+  weight_decay: 0.01
+  batch_size: 4
+  num_workers: 4
+  class_weights: [1.0, 5.0]
+  poly_power: 0.9
+  warmup_epochs: 2
+  use_amp: true
+  seed: 42
+
+ckpt_dir: checkpoints/segformer_hf_india_ft
