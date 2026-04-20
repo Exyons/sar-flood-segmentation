@@ -186,3 +186,24 @@ All hyperparameters in `configs/default.yaml`:
 - Augmentation is restricted to geospatially-safe ops (flip, 90° rotation) — no elastic or colour jitter.
 - `richdem` and `pysheds` are **not** used (Python 3.13 incompatibility); TWI is approximated with `scipy.ndimage.uniform_filter`.
 - XGBoost 3.x does not accept `use_label_encoder`; the wrapper omits it.
+
+# How to run
+Runbook:
+## EE auth (once)
+uv run python -c "import ee; ee.Authenticate()"
+
+## Stage 1 pretrain
+uv run python train_segformer.py --config configs/pretrain_hf.yaml
+
+## Assam 2022 export (GCP project id)
+uv run python -m gee.python.export_event --event assam2022 --project <gcp>
+## wait for tasks on https://code.earthengine.google.com/tasks
+uv run python -m gee.python.download_drive --event assam2022
+
+## Stage 2 fine-tune
+uv run python train_segformer.py --config configs/finetune_hf.yaml
+
+## Per-event eval
+uv run python evaluate.py \
+  --ckpt checkpoints/segformer_hf_india_ft/best.pt \
+  --split data/india_floods/splits/val.csv
