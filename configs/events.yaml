@@ -1,20 +1,25 @@
 # India flood events for GEE weak-label extraction.
 #
-# Each event defines:
-#   bbox       — AOI in lon/lat (min_lon, min_lat, max_lon, max_lat)
-#   s1_start   — Sentinel-1 search window start (floodwater present)
-#   s1_end     — Sentinel-1 search window end
-#   s2_start   — Sentinel-2 search window for weak-label generation
-#   s2_end     — Sentinel-2 search window end
-#
-# Tip: S2 window should overlap or immediately bracket the S1 window.
-# Broaden S2 slightly to tolerate cloud cover.
+# Each event defines either:
+#   bbox    — single AOI as [min_lon, min_lat, max_lon, max_lat]
+#   bboxes  — list of AOIs (preferred for river-corridor hotspot style)
+# plus
+#   s1_start / s1_end — Sentinel-1 search window (floodwater present)
+#   s2_start / s2_end — Sentinel-2 weak-label window (overlap or bracket S1)
 
 events:
 
+  # Assam 2022 — Brahmaputra-corridor hotspots instead of full Assam bbox.
+  # Five disjoint boxes over 2022 worst-hit districts. ~900 tiles total vs
+  # ~10,800 for the full bbox, with far higher flood-pixel density per tile.
   assam2022:
-    name: "Assam 2022 monsoon floods"
-    bbox: [89.5, 24.0, 96.0, 27.5]
+    name: "Assam 2022 monsoon floods — Brahmaputra corridor hotspots"
+    bboxes:
+      - [89.7, 25.9, 90.8, 26.3]   # Dhubri–Goalpara (lower Brahmaputra)
+      - [92.1, 26.1, 93.0, 26.6]   # Morigaon–Nagaon (Kopili confluence)
+      - [92.7, 26.5, 93.6, 26.9]   # Kaziranga (floodplain)
+      - [93.7, 26.7, 94.5, 27.1]   # Majuli–Jorhat (char belt)
+      - [94.5, 27.2, 95.6, 27.7]   # Dibrugarh–Tinsukia (upper Brahmaputra)
     s1_start: "2022-06-15"
     s1_end:   "2022-07-20"
     s2_start: "2022-06-10"
@@ -50,3 +55,7 @@ export:
   tile_size_px: 512
   drive_folder: "gee_exports"
   crs: "EPSG:4326"
+  # Skip tiles whose weak label has fewer than this many flood pixels.
+  # Saves Drive quota + training time on tiles with no real signal.
+  # Set to 0 to export every tile.
+  min_flood_px: 500
