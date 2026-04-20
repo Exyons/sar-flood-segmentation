@@ -114,12 +114,13 @@ def generate_weak_label(
 
     flood = water.And(permanent.Not()).rename("flood")
 
-    # Encode: -1 where S2 had no valid obs (cloud / gap), else 0/1
-    valid = mndwi.mask()
-    label = flood.toInt16().where(valid.Not(), -1)
+    # Encode -1 where S2 had no valid obs (cloud / gap), else 0/1.
+    # ee.Image.where cannot write to masked pixels, so we unmask directly:
+    # `unmask(-1)` replaces the mask with the literal value -1.
+    label = flood.toInt16().unmask(-1).rename("label")
 
     if s1_reference is not None:
         proj = s1_reference.projection()
         label = label.reproject(crs=proj.crs(), scale=proj.nominalScale())
 
-    return label.rename("label").clip(aoi)
+    return label.clip(aoi)
