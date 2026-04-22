@@ -1,0 +1,28 @@
+# SegFormer-B0 + MLA (low-rank KV attention) on Sen1Floods11 (GEE-style reshape).
+# Identical schedule to scratch config — only model.kind + rank_divisor differ.
+
+model:
+  kind: mla
+  num_labels: 2
+  in_channels: 3
+  rank_divisor: 4           # KV compression: dim // rank_divisor
+
+data:
+  root:      data
+  train_csv: data/sen1floods11-splits/train.csv
+  val_csv:   data/sen1floods11-splits/val.csv
+  label_key: null
+
+training:
+  epochs: 60
+  lr: 6.0e-5
+  weight_decay: 0.01
+  batch_size: 4
+  num_workers: 4
+  class_weights: [1.0, 5.0]
+  poly_power: 0.9
+  warmup_epochs: 5
+  use_amp: true
+  seed: 42
+
+ckpt_dir: checkpoints/segformer_mla_sen1floods

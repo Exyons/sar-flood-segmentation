@@ -1,0 +1,31 @@
+# From-scratch SegFormer-B0 on Sen1Floods11 (GEE-style reshape).
+# Swap to India GEE data later by flipping data.train_csv / data.val_csv only.
+
+model:
+  kind: scratch
+  num_labels: 2
+  in_channels: 3           # dataset stacks (VV, VH, VV-VH)
+  # SegFormer-B0 scale defaults (see models/segformer_model.py:25-39).
+  # embed_dims: [32, 64, 160, 256]
+  # num_heads:  [1, 2, 5, 8]
+  # decoder_dim: 256
+
+data:
+  root:      data
+  train_csv: data/sen1floods11-splits/train.csv
+  val_csv:   data/sen1floods11-splits/val.csv
+  label_key: null          # CSV has explicit label column; no suffix derive
+
+training:
+  epochs: 60
+  lr: 6.0e-5
+  weight_decay: 0.01
+  batch_size: 4
+  num_workers: 4
+  class_weights: [1.0, 5.0]   # [dry, flood]; flood is minority
+  poly_power: 0.9
+  warmup_epochs: 5
+  use_amp: true
+  seed: 42
+
+ckpt_dir: checkpoints/segformer_scratch_sen1floods
