@@ -40,13 +40,14 @@ Config shape (YAML):
 """
 
 import argparse
+import csv
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import yaml
 
@@ -125,7 +126,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
         label = batch["label"].to(device, non_blocking=True)
 
         optimizer.zero_grad()
-        with autocast(enabled=use_amp):
+        with autocast(device_type=device.type, enabled=use_amp):
             logits = model(image)
             loss = criterion(logits, label)
 
@@ -162,7 +163,7 @@ def run_validation(model, loader, criterion, device, use_amp,
         image = batch["image"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
 
-        with autocast(enabled=use_amp):
+        with autocast(device_type=device.type, enabled=use_amp):
             logits = model(image)
             loss = criterion(logits, label)
 
@@ -200,7 +201,7 @@ def load_init_from(model: nn.Module, path: str | Path) -> None:
     print(f"  init_from: loaded {path}")
 
 
-def build_loaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
+def build_loaders(cfg: dict, pin_memory: bool = True) -> tuple[DataLoader, DataLoader]:
     data_cfg = cfg["data"]
     tr_cfg = cfg["training"]
     root = data_cfg["root"]
@@ -223,7 +224,7 @@ def build_loaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
         batch_size=tr_cfg["batch_size"],
         shuffle=True,
         num_workers=tr_cfg.get("num_workers", 4),
-        pin_memory=True,
+        pin_memory=pin_memory,
         drop_last=True,
     )
     val_loader = DataLoader(
@@ -231,9 +232,26 @@ def build_loaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
         batch_size=tr_cfg["batch_size"],
         shuffle=False,
         num_workers=tr_cfg.get("num_workers", 4),
-        pin_memory=True,
+        pin_memory=pin_memory,
     )
     return train_loader, val_loader
+
+
+HISTORY_COLS = [
+    "epoch", "lr",
+    "train_loss", "train_iou", "train_f1",
+    "val_loss", "val_iou", "val_f1",
+    "elapsed_s",
+]
+
+
+def _append_history(history_path: Path, row: dict) -> None:
+    new_file = not history_path.exists()
+    with open(history_path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=HISTORY_COLS)
+        if new_file:
+            w.writeheader()
+        w.writerow({k: row.get(k, "") for k in HISTORY_COLS})
 
 
 def main():
@@ -266,7 +284,7 @@ def main():
         load_init_from(model, init_from)
 
     # Loaders
-    train_loader, val_loader = build_loaders(cfg)
+    train_loader, val_loader = build_loaders(cfg, pin_memory=device.type == "cuda")
     print(f"Train: {len(train_loader.dataset)} tiles | Val: {len(val_loader.dataset)} tiles")
 
     # Loss
@@ -291,10 +309,11 @@ def main():
     )
 
     use_amp = tr_cfg.get("use_amp", True) and device.type == "cuda" and not args.smoke
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler(device=device.type, enabled=use_amp)
 
     ckpt_dir = Path(cfg["ckpt_dir"])
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    history_path = ckpt_dir / "history.csv"
 
     if args.smoke:
         print("\n[SMOKE] 2 train + 2 val steps on CPU")
@@ -331,6 +350,17 @@ def main():
             f"Val loss {val_loss:.4f} iou {val_iou:.4f} f1 {val_f1:.4f} | "
             f"LR {lr:.2e} | {elapsed:.1f}s"
         )
+
+        _append_history(history_path, {
+            "epoch": epoch, "lr": f"{lr:.6e}",
+            "train_loss": f"{train_loss:.6f}",
+            "train_iou":  f"{train_iou:.6f}",
+            "train_f1":   f"{train_f1:.6f}",
+            "val_loss":   f"{val_loss:.6f}",
+            "val_iou":    f"{val_iou:.6f}",
+            "val_f1":     f"{val_f1:.6f}",
+            "elapsed_s":  f"{elapsed:.2f}",
+        })
 
         if val_iou > best_iou:
             best_iou = val_iou
