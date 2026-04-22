@@ -79,4 +79,22 @@ if run_step plot; then
       --out-dir     "$OUT_DIR"
 fi
 
+if run_step xai; then
+  banner "9. Attention maps -> $OUT_DIR/xai  [data-root=$EVAL_ROOT]"
+  $PY scripts/visualize_attention.py \
+      --scratch-ckpt "$SCRATCH_DIR/best.pt" \
+      --mla-ckpt     "$MLA_DIR/best.pt" \
+      --val-csv      "$VAL_CSV" \
+      --data-root    "$EVAL_ROOT" \
+      --out-dir      "$OUT_DIR/xai"
+
+  banner "10. Effective receptive field -> $OUT_DIR/xai"
+  $PY scripts/visualize_receptive_field.py \
+      --scratch-ckpt "$SCRATCH_DIR/best.pt" \
+      --mla-ckpt     "$MLA_DIR/best.pt" \
+      --val-csv      "$VAL_CSV" \
+      --data-root    "$EVAL_ROOT" \
+      --out-dir      "$OUT_DIR/xai"
+fi
+
 banner "All done."
