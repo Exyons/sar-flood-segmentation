@@ -1,0 +1,31 @@
+# From-scratch SegFormer-B0 fine-tuned on GEE Assam 2022 exports.
+# Small (~15 tiles) — best run on top of the Sen1Floods11 pretrained checkpoint.
+
+model:
+  kind: scratch
+  num_labels: 2
+  in_channels: 3
+  # Warm-start from Sen1Floods11. Comment out to train from random init.
+  init_from: checkpoints/segformer_scratch_sen1floods/best.pt
+
+data:
+  root:      data
+  train_csv: data/assam2022-splits/train.csv
+  val_csv:   data/assam2022-splits/val.csv
+  label_key: null
+
+training:
+  device: cuda:0
+  epochs: 40
+  lr: 3.0e-5                # lower than pretrain — we're fine-tuning
+  weight_decay: 0.01
+  batch_size: 2             # small dataset, keep batches small so val has >1 batch
+  num_workers: 2
+  class_weights: [1.0, 5.0]
+  poly_power: 0.9
+  warmup_epochs: 3
+  use_amp: true
+  seed: 42
+  log_every_steps: 10
+
+ckpt_dir: checkpoints/segformer_scratch_assam2022

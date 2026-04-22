@@ -1,0 +1,31 @@
+# SegFormer-B0 + MLA fine-tuned on GEE Assam 2022 exports.
+# Identical schedule to scratch_assam2022 — only model.kind differs.
+
+model:
+  kind: mla
+  num_labels: 2
+  in_channels: 3
+  rank_divisor: 4
+  init_from: checkpoints/segformer_mla_sen1floods/best.pt
+
+data:
+  root:      data
+  train_csv: data/assam2022-splits/train.csv
+  val_csv:   data/assam2022-splits/val.csv
+  label_key: null
+
+training:
+  device: cuda:1
+  epochs: 40
+  lr: 3.0e-5
+  weight_decay: 0.01
+  batch_size: 2
+  num_workers: 2
+  class_weights: [1.0, 5.0]
+  poly_power: 0.9
+  warmup_epochs: 3
+  use_amp: true
+  seed: 42
+  log_every_steps: 10
+
+ckpt_dir: checkpoints/segformer_mla_assam2022
