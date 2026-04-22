@@ -8,12 +8,13 @@ model:
   rank_divisor: 4           # KV compression: dim // rank_divisor
 
 data:
-  root:      data
-  train_csv: data/sen1floods11-splits/train.csv
-  val_csv:   data/sen1floods11-splits/val.csv
+  root:      data/sen1floods11/data
+  train_csv: data/sen1floods11/splits/pretrain_train_weak.csv
+  val_csv:   data/sen1floods11/splits/pretrain_val_hand.csv
   label_key: null
 
 training:
+  device: cuda:1              # pin to GPU 1; scratch config uses cuda:0 so both train in parallel
   epochs: 60
   lr: 6.0e-5
   weight_decay: 0.01

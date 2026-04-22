@@ -259,6 +259,9 @@ def main():
     parser.add_argument("--config", required=True, help="Path to YAML config")
     parser.add_argument("--smoke", action="store_true",
                         help="Run 2 train + 2 val steps on CPU for shape sanity")
+    parser.add_argument("--device", default=None,
+                        help="Override device (e.g. cuda:0, cuda:1, cpu). "
+                             "Falls back to cfg.training.device, then auto.")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -269,8 +272,23 @@ def main():
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    device = torch.device("cpu" if args.smoke else
-                          ("cuda" if torch.cuda.is_available() else "cpu"))
+    if args.smoke:
+        device = torch.device("cpu")
+    else:
+        dev_str = args.device or tr_cfg.get("device")
+        if dev_str is None:
+            dev_str = "cuda" if torch.cuda.is_available() else "cpu"
+        device = torch.device(dev_str)
+        if device.type == "cuda":
+            if not torch.cuda.is_available():
+                raise RuntimeError(f"Requested {dev_str} but CUDA is not available")
+            n = torch.cuda.device_count()
+            idx = device.index if device.index is not None else 0
+            if idx >= n:
+                raise RuntimeError(
+                    f"Requested {dev_str} but only {n} CUDA device(s) visible"
+                )
+            torch.cuda.set_device(device)
     print(f"Device: {device}")
 
     # Build model

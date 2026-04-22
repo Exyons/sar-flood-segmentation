@@ -28,6 +28,7 @@ VAL_CSV="${VAL_CSV:-data/sen1floods11/splits/pretrain_val_hand.csv}"
 OUT_DIR="${OUT_DIR:-reports/figures}"
 ONLY="${ONLY:-}"
 SKIP_SMOKE="${SKIP_SMOKE:-0}"
+PARALLEL="${PARALLEL:-0}"        # 1 = launch scratch + MLA concurrently (2-GPU boxes)
 
 PY=python
 
@@ -52,11 +53,27 @@ if run_step train; then
     $PY train_segformer.py --config "$MLA_CFG" --smoke
   fi
 
-  banner "4. Train scratch"
-  $PY train_segformer.py --config "$SCRATCH_CFG"
+  if [[ "$PARALLEL" == "1" ]]; then
+    banner "4+5. Train scratch + MLA in parallel (device pinning from config)"
+    mkdir -p logs
+    $PY train_segformer.py --config "$SCRATCH_CFG" > logs/train_scratch.log 2>&1 &
+    SCRATCH_PID=$!
+    $PY train_segformer.py --config "$MLA_CFG"     > logs/train_mla.log     2>&1 &
+    MLA_PID=$!
+    echo "  scratch PID=$SCRATCH_PID  -> logs/train_scratch.log"
+    echo "  MLA     PID=$MLA_PID      -> logs/train_mla.log"
+    echo "  tail -f logs/train_{scratch,mla}.log  to follow"
+    FAIL=0
+    wait $SCRATCH_PID || { echo "scratch training failed"; FAIL=1; }
+    wait $MLA_PID     || { echo "MLA training failed";     FAIL=1; }
+    [[ $FAIL -eq 0 ]] || exit 1
+  else
+    banner "4. Train scratch"
+    $PY train_segformer.py --config "$SCRATCH_CFG"
 
-  banner "5. Train MLA"
-  $PY train_segformer.py --config "$MLA_CFG"
+    banner "5. Train MLA"
+    $PY train_segformer.py --config "$MLA_CFG"
+  fi
 fi
 
 if run_step eval; then

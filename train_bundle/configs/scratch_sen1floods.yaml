@@ -11,12 +11,13 @@ model:
   # decoder_dim: 256
 
 data:
-  root:      data
-  train_csv: data/sen1floods11-splits/train.csv
-  val_csv:   data/sen1floods11-splits/val.csv
+  root:      data/sen1floods11/data
+  train_csv: data/sen1floods11/splits/pretrain_train_weak.csv
+  val_csv:   data/sen1floods11/splits/pretrain_val_hand.csv
   label_key: null          # CSV has explicit label column; no suffix derive
 
 training:
+  device: cuda:0              # pin to GPU 0; MLA config uses cuda:1 so both train in parallel
   epochs: 60
   lr: 6.0e-5
   weight_decay: 0.01
