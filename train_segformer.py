@@ -49,6 +49,11 @@ import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
 import yaml
+from rich.console import Console
+from rich.rule import Rule
+
+# force_terminal=True keeps colors when stdout is piped (sed prefix in PARALLEL mode)
+console = Console(force_terminal=True)
 
 from data.dataset import Sen1FloodsDataset
 from torch.utils.data import DataLoader
@@ -150,12 +155,14 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
             now = time.time()
             it_s = (now - t_last) / max(1, log_every if step + 1 >= log_every else step + 1)
             t_last = now
-            tag = f"[ep {epoch}] " if epoch is not None else ""
-            print(
-                f"  {tag}Train {step + 1:>4}/{total_steps} | "
-                f"loss {total_loss / n:.4f} | iou {total_iou / n:.3f} | "
-                f"f1 {total_f1 / n:.3f} | {it_s * 1000:.0f} ms/it",
-                flush=True,
+            tag = f"[dim]ep {epoch}[/]" if epoch is not None else ""
+            console.print(
+                f"  {tag} [bold magenta]Train[/] "
+                f"[cyan]{step + 1:>4}/{total_steps}[/] | "
+                f"loss [red]{total_loss / n:.4f}[/] | "
+                f"iou [green]{total_iou / n:.3f}[/] | "
+                f"f1 [yellow]{total_f1 / n:.3f}[/] | "
+                f"[dim]{it_s * 1000:.0f} ms/it[/]"
             )
 
         if max_steps is not None and step + 1 >= max_steps:
@@ -190,12 +197,13 @@ def run_validation(model, loader, criterion, device, use_amp,
         n += 1
 
         if log_every > 0 and ((step + 1) % log_every == 0 or step + 1 == total_steps):
-            tag = f"[ep {epoch}] " if epoch is not None else ""
-            print(
-                f"  {tag}Val   {step + 1:>4}/{total_steps} | "
-                f"loss {total_loss / n:.4f} | iou {total_iou / n:.3f} | "
-                f"f1 {total_f1 / n:.3f}",
-                flush=True,
+            tag = f"[dim]ep {epoch}[/]" if epoch is not None else ""
+            console.print(
+                f"  {tag} [bold blue]Val  [/] "
+                f"[cyan]{step + 1:>4}/{total_steps}[/] | "
+                f"loss [red]{total_loss / n:.4f}[/] | "
+                f"iou [green]{total_iou / n:.3f}[/] | "
+                f"f1 [yellow]{total_f1 / n:.3f}[/]"
             )
 
         if max_steps is not None and step + 1 >= max_steps:
@@ -314,7 +322,7 @@ def main():
                     f"Requested {dev_str} but only {n} CUDA device(s) visible"
                 )
             torch.cuda.set_device(device)
-    print(f"Device: {device}")
+    console.print(f"[dim]Device:[/] [bold cyan]{device}[/]")
 
     # Build model
     model_cfg = dict(cfg["model"])
@@ -328,7 +336,10 @@ def main():
 
     # Loaders
     train_loader, val_loader = build_loaders(cfg, pin_memory=device.type == "cuda")
-    print(f"Train: {len(train_loader.dataset)} tiles | Val: {len(val_loader.dataset)} tiles")
+    console.print(
+        f"[dim]Train:[/] [cyan]{len(train_loader.dataset)}[/] tiles  "
+        f"[dim]| Val:[/] [cyan]{len(val_loader.dataset)}[/] tiles"
+    )
 
     # Loss
     class_weights = tr_cfg.get("class_weights")
@@ -359,8 +370,7 @@ def main():
     history_path = ckpt_dir / "history.csv"
 
     if args.smoke:
-        print("\n[SMOKE] 2 train + 2 val steps on CPU")
-        print("-" * 70)
+        console.print(Rule("[bold yellow][SMOKE] 2 train + 2 val steps on CPU[/]"))
         tl, ti, tf = train_one_epoch(model, train_loader, criterion, optimizer,
                                      scaler, device, use_amp, max_steps=2)
         vl, vi, vf = run_validation(model, val_loader, criterion, device, use_amp,
@@ -368,14 +378,13 @@ def main():
         print(f"train  loss={tl:.4f} iou={ti:.4f} f1={tf:.4f}")
         print(f"val    loss={vl:.4f} iou={vi:.4f} f1={vf:.4f}")
         assert np.isfinite(tl) and np.isfinite(vl), "non-finite loss"
-        print("[SMOKE] OK")
+        console.print("[bold green][SMOKE] OK[/]")
         return
 
     best_iou = 0.0
     log_every = int(tr_cfg.get("log_every_steps", 50))
     val_log_every = int(tr_cfg.get("val_log_every_steps", 0))
-    print(f"\nTraining for {epochs} epochs...")
-    print("-" * 70)
+    console.print(Rule(f"[bold white on blue] Training for {epochs} epochs [/]"))
 
     for epoch in range(1, epochs + 1):
         t0 = time.time()
@@ -391,11 +400,17 @@ def main():
         lr = optimizer.param_groups[0]["lr"]
         elapsed = time.time() - t0
 
-        print(
-            f"Epoch {epoch:3d}/{epochs} | "
-            f"Train loss {train_loss:.4f} iou {train_iou:.4f} f1 {train_f1:.4f} | "
-            f"Val loss {val_loss:.4f} iou {val_iou:.4f} f1 {val_f1:.4f} | "
-            f"LR {lr:.2e} | {elapsed:.1f}s"
+        console.print(
+            f"[bold white on blue] Epoch {epoch:3d}/{epochs} [/] "
+            f"[bold magenta]Train[/] "
+            f"loss [red]{train_loss:.4f}[/] "
+            f"iou [green]{train_iou:.4f}[/] "
+            f"f1 [yellow]{train_f1:.4f}[/] [dim]|[/] "
+            f"[bold blue]Val[/] "
+            f"loss [red]{val_loss:.4f}[/] "
+            f"iou [green]{val_iou:.4f}[/] "
+            f"f1 [yellow]{val_f1:.4f}[/] [dim]|[/] "
+            f"[dim]LR {lr:.2e} | {elapsed:.1f}s[/]"
         )
 
         _append_history(history_path, {
@@ -420,7 +435,10 @@ def main():
                 "val_f1": val_f1,
                 "config": cfg,
             }, ckpt_path)
-            print(f"  -> New best val IoU: {val_iou:.4f} (saved to {ckpt_path})")
+            console.print(
+                f"  [bold green]★ new best[/] val iou "
+                f"[green]{val_iou:.4f}[/] [dim]-> {ckpt_path}[/]"
+            )
 
     # Save final
     torch.save({

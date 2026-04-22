@@ -18,6 +18,7 @@ dependencies = [
     "pydrive2>=1.21.3",
     "pyyaml>=6.0.3",
     "rasterio>=1.5.0",
+    "rich>=13.7.0",
     "scikit-image>=0.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
