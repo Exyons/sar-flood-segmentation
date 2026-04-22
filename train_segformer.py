@@ -41,7 +41,6 @@ Config shape (YAML):
 
 import argparse
 import csv
-import sys
 import time
 from pathlib import Path
 
@@ -49,10 +48,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
-from tqdm import tqdm
 import yaml
-
-TQDM_DISABLE = not sys.stderr.isatty()   # silence progress bars when piped to a log
 
 from data.dataset import Sen1FloodsDataset
 from torch.utils.data import DataLoader
@@ -117,15 +113,17 @@ def get_polynomial_lr_scheduler(optimizer, epochs: int, power: float = 0.9,
 
 
 def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp,
-                    ignore_index: int = -1, max_steps: int | None = None):
+                    ignore_index: int = -1, max_steps: int | None = None,
+                    log_every: int = 50, epoch: int | None = None):
     model.train()
     total_loss = 0.0
     total_iou = 0.0
     total_f1 = 0.0
     n = 0
+    total_steps = max_steps if max_steps is not None else len(loader)
+    t_last = time.time()
 
-    for step, batch in enumerate(tqdm(loader, desc="  Train", leave=False,
-                                      disable=TQDM_DISABLE, mininterval=5.0)):
+    for step, batch in enumerate(loader):
         image = batch["image"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
 
@@ -148,6 +146,18 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
         total_f1 += compute_f1(pred, label, ignore_index=ignore_index)
         n += 1
 
+        if log_every > 0 and ((step + 1) % log_every == 0 or step + 1 == total_steps):
+            now = time.time()
+            it_s = (now - t_last) / max(1, log_every if step + 1 >= log_every else step + 1)
+            t_last = now
+            tag = f"[ep {epoch}] " if epoch is not None else ""
+            print(
+                f"  {tag}Train {step + 1:>4}/{total_steps} | "
+                f"loss {total_loss / n:.4f} | iou {total_iou / n:.3f} | "
+                f"f1 {total_f1 / n:.3f} | {it_s * 1000:.0f} ms/it",
+                flush=True,
+            )
+
         if max_steps is not None and step + 1 >= max_steps:
             break
 
@@ -156,15 +166,16 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
 
 @torch.no_grad()
 def run_validation(model, loader, criterion, device, use_amp,
-                   ignore_index: int = -1, max_steps: int | None = None):
+                   ignore_index: int = -1, max_steps: int | None = None,
+                   log_every: int = 0, epoch: int | None = None):
     model.train(False)
     total_loss = 0.0
     total_iou = 0.0
     total_f1 = 0.0
     n = 0
+    total_steps = max_steps if max_steps is not None else len(loader)
 
-    for step, batch in enumerate(tqdm(loader, desc="  Val", leave=False,
-                                      disable=TQDM_DISABLE, mininterval=5.0)):
+    for step, batch in enumerate(loader):
         image = batch["image"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
 
@@ -177,6 +188,15 @@ def run_validation(model, loader, criterion, device, use_amp,
         total_iou += compute_iou(pred, label, ignore_index=ignore_index)
         total_f1 += compute_f1(pred, label, ignore_index=ignore_index)
         n += 1
+
+        if log_every > 0 and ((step + 1) % log_every == 0 or step + 1 == total_steps):
+            tag = f"[ep {epoch}] " if epoch is not None else ""
+            print(
+                f"  {tag}Val   {step + 1:>4}/{total_steps} | "
+                f"loss {total_loss / n:.4f} | iou {total_iou / n:.3f} | "
+                f"f1 {total_f1 / n:.3f}",
+                flush=True,
+            )
 
         if max_steps is not None and step + 1 >= max_steps:
             break
@@ -352,6 +372,8 @@ def main():
         return
 
     best_iou = 0.0
+    log_every = int(tr_cfg.get("log_every_steps", 50))
+    val_log_every = int(tr_cfg.get("val_log_every_steps", 0))
     print(f"\nTraining for {epochs} epochs...")
     print("-" * 70)
 
@@ -359,9 +381,11 @@ def main():
         t0 = time.time()
         train_loss, train_iou, train_f1 = train_one_epoch(
             model, train_loader, criterion, optimizer, scaler, device, use_amp,
+            log_every=log_every, epoch=epoch,
         )
         val_loss, val_iou, val_f1 = run_validation(
             model, val_loader, criterion, device, use_amp,
+            log_every=val_log_every, epoch=epoch,
         )
         scheduler.step()
         lr = optimizer.param_groups[0]["lr"]

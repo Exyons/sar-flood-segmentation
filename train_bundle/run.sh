@@ -55,14 +55,12 @@ if run_step train; then
 
   if [[ "$PARALLEL" == "1" ]]; then
     banner "4+5. Train scratch + MLA in parallel (device pinning from config)"
-    mkdir -p logs
-    $PY train_segformer.py --config "$SCRATCH_CFG" > logs/train_scratch.log 2>&1 &
+    stdbuf -oL -eL $PY train_segformer.py --config "$SCRATCH_CFG" \
+      2>&1 | sed -u 's/^/[scratch] /' &
     SCRATCH_PID=$!
-    $PY train_segformer.py --config "$MLA_CFG"     > logs/train_mla.log     2>&1 &
+    stdbuf -oL -eL $PY train_segformer.py --config "$MLA_CFG" \
+      2>&1 | sed -u 's/^/[mla]     /' &
     MLA_PID=$!
-    echo "  scratch PID=$SCRATCH_PID  -> logs/train_scratch.log"
-    echo "  MLA     PID=$MLA_PID      -> logs/train_mla.log"
-    echo "  tail -f logs/train_{scratch,mla}.log  to follow"
     FAIL=0
     wait $SCRATCH_PID || { echo "scratch training failed"; FAIL=1; }
     wait $MLA_PID     || { echo "MLA training failed";     FAIL=1; }
