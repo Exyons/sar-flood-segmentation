@@ -147,8 +147,10 @@ def plot_pred_grid(
     n_tiles: int = 6, seed: int = 0,
 ) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    s_model, s_cfg = _build_from_ckpt(scratch_ckpt, device)
+    tile_size = (s_cfg or {}).get("data", {}).get("tile_size")
     ds = Sen1FloodsDataset(csv_path=val_csv, data_root=data_root,
-                           label_key=None, augment=False)
+                           label_key=None, augment=False, tile_size=tile_size)
     if len(ds) == 0:
         print("  pred_grid: empty val set, skipping")
         return
@@ -156,7 +158,6 @@ def plot_pred_grid(
     rng = random.Random(seed)
     idx = rng.sample(range(len(ds)), n)
 
-    s_model, _ = _build_from_ckpt(scratch_ckpt, device)
     m_model, _ = _build_from_ckpt(mla_ckpt, device)
 
     fig, axes = plt.subplots(n, 4, figsize=(4 * 3, n * 3))

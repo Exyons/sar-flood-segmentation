@@ -199,9 +199,13 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print(f"Loading scratch from {args.scratch_ckpt}")
+    m_s, s_cfg = _build_from_ckpt(args.scratch_ckpt, device)
+    tile_size = (s_cfg or {}).get("data", {}).get("tile_size")
+
     ds = Sen1FloodsDataset(
         csv_path=args.val_csv, data_root=args.data_root,
-        label_key=None, augment=False,
+        label_key=None, augment=False, tile_size=tile_size,
     )
     n = min(args.n_samples, len(ds))
     rng = random.Random(args.seed)
@@ -209,9 +213,6 @@ def main():
     print(f"Val tiles: {len(ds)} | sampling {n} (seed={args.seed})")
 
     images = [ds[i]["image"] for i in idx]
-
-    print(f"Loading scratch from {args.scratch_ckpt}")
-    m_s, _ = _build_from_ckpt(args.scratch_ckpt, device)
     print("Computing ERF — scratch")
     erf_s = erf_for_model(m_s, images, device)
     del m_s

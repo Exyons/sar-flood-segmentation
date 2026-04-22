@@ -13,6 +13,7 @@ data:
   train_csv: data/assam2022-splits/train.csv
   val_csv:   data/assam2022-splits/val.csv
   label_key: null
+  tile_size: 512             # GEE tiles have variable H/W — center-crop/pad to this
 
 training:
   device: cuda:0

@@ -49,6 +49,7 @@ class Sen1FloodsDataset(Dataset):
         data_root: str | Path,
         label_key: str | None = "LabelHand",
         augment: bool = False,
+        tile_size: int | None = None,
     ):
         """
         Args:
@@ -64,6 +65,7 @@ class Sen1FloodsDataset(Dataset):
         self.data_root = Path(data_root)
         self.label_key = label_key
         self.augment = augment
+        self.tile_size = tile_size   # None = keep native H/W (requires uniform tiles)
 
         self.samples: list[tuple[Path, Path, str]] = []
         with open(csv_path) as f:
@@ -140,6 +142,10 @@ class Sen1FloodsDataset(Dataset):
         if nan_mask.any():
             label[nan_mask] = -1
 
+        if self.tile_size is not None:
+            image = self._fit(image, self.tile_size, fill=0.0)
+            label = self._fit(label, self.tile_size, fill=-1)
+
         if self.augment:
             image, label = self._augment(image, label)
 
@@ -148,6 +154,23 @@ class Sen1FloodsDataset(Dataset):
             "label": torch.from_numpy(label.copy()),
             "tile_name": tile_name,
         }
+
+    @staticmethod
+    def _fit(arr: np.ndarray, size: int, fill: float) -> np.ndarray:
+        """Center-crop or symmetrically pad the last two axes to ``size``."""
+        h, w = arr.shape[-2:]
+        y0 = max(0, (h - size) // 2)
+        x0 = max(0, (w - size) // 2)
+        arr = arr[..., y0:y0 + size, x0:x0 + size]
+        h, w = arr.shape[-2:]
+        if h == size and w == size:
+            return arr
+        pad_h, pad_w = size - h, size - w
+        pads = [(0, 0)] * (arr.ndim - 2) + [
+            (pad_h // 2, pad_h - pad_h // 2),
+            (pad_w // 2, pad_w - pad_w // 2),
+        ]
+        return np.pad(arr, pads, mode="constant", constant_values=fill)
 
     @staticmethod
     def _clip_minmax(x: np.ndarray, lo: float, hi: float) -> np.ndarray:

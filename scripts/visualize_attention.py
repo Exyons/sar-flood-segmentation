@@ -294,16 +294,17 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print(f"Loading scratch  from {args.scratch_ckpt}")
+    m_s, s_cfg = _build_from_ckpt(args.scratch_ckpt, device)
+    tile_size = (s_cfg or {}).get("data", {}).get("tile_size")
+
     ds = Sen1FloodsDataset(
         csv_path=args.val_csv, data_root=args.data_root,
-        label_key=None, augment=False,
+        label_key=None, augment=False, tile_size=tile_size,
     )
     print(f"Val tiles: {len(ds)} | sampling {args.n_tiles} "
           f"with flood-frac >= {args.flood_frac_min}")
     idx = _sample_tiles(ds, args.n_tiles, args.flood_frac_min, args.seed)
-
-    print(f"Loading scratch  from {args.scratch_ckpt}")
-    m_s, _ = _build_from_ckpt(args.scratch_ckpt, device)
     print(f"Loading MLA      from {args.mla_ckpt}")
     m_m, _ = _build_from_ckpt(args.mla_ckpt, device)
 

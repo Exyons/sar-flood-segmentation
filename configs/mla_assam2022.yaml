@@ -13,6 +13,7 @@ data:
   train_csv: data/assam2022-splits/train.csv
   val_csv:   data/assam2022-splits/val.csv
   label_key: null
+  tile_size: 512
 
 training:
   device: cuda:1

@@ -9,8 +9,8 @@ model:
 
 data:
   root:      data/sen1floods11/data
-  train_csv: data/sen1floods11/splits/pretrain_train_weak.csv
-  val_csv:   data/sen1floods11/splits/pretrain_val_hand.csv
+  train_csv: data/sen1floods11/splits/train_weak.csv
+  val_csv:   data/sen1floods11/splits/val_hand.csv
   label_key: null
 
 training:
@@ -18,7 +18,7 @@ training:
   epochs: 60
   lr: 6.0e-5
   weight_decay: 0.01
-  batch_size: 4
+  batch_size: 16
   num_workers: 4
   class_weights: [1.0, 5.0]
   poly_power: 0.9

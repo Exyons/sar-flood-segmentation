@@ -239,18 +239,21 @@ def build_loaders(cfg: dict, pin_memory: bool = True) -> tuple[DataLoader, DataL
     tr_cfg = cfg["training"]
     root = data_cfg["root"]
     label_key = data_cfg.get("label_key", "LabelHand")
+    tile_size = data_cfg.get("tile_size", None)
 
     train_ds = Sen1FloodsDataset(
         csv_path=data_cfg["train_csv"],
         data_root=root,
         label_key=label_key,
         augment=True,
+        tile_size=tile_size,
     )
     val_ds = Sen1FloodsDataset(
         csv_path=data_cfg["val_csv"],
         data_root=root,
         label_key=label_key,
         augment=False,
+        tile_size=tile_size,
     )
     train_loader = DataLoader(
         train_ds,

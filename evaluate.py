@@ -230,13 +230,15 @@ def eval_ckpt_on_split(
     from torch.utils.data import DataLoader
 
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, _ = _build_from_ckpt(Path(ckpt_path), device)
+    model, ckpt_cfg = _build_from_ckpt(Path(ckpt_path), device)
+    tile_size = (ckpt_cfg or {}).get("data", {}).get("tile_size")
 
     ds = Sen1FloodsDataset(
         csv_path=split_csv,
         data_root=data_root,
         label_key=label_key,
         augment=False,
+        tile_size=tile_size,
     )
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False,
                         num_workers=num_workers, pin_memory=True)
