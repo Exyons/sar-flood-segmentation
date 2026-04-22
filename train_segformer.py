@@ -41,6 +41,7 @@ Config shape (YAML):
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
 
@@ -50,6 +51,8 @@ import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 import yaml
+
+TQDM_DISABLE = not sys.stderr.isatty()   # silence progress bars when piped to a log
 
 from data.dataset import Sen1FloodsDataset
 from torch.utils.data import DataLoader
@@ -121,7 +124,8 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
     total_f1 = 0.0
     n = 0
 
-    for step, batch in enumerate(tqdm(loader, desc="  Train", leave=False)):
+    for step, batch in enumerate(tqdm(loader, desc="  Train", leave=False,
+                                      disable=TQDM_DISABLE, mininterval=5.0)):
         image = batch["image"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
 
@@ -159,7 +163,8 @@ def run_validation(model, loader, criterion, device, use_amp,
     total_f1 = 0.0
     n = 0
 
-    for step, batch in enumerate(tqdm(loader, desc="  Val", leave=False)):
+    for step, batch in enumerate(tqdm(loader, desc="  Val", leave=False,
+                                      disable=TQDM_DISABLE, mininterval=5.0)):
         image = batch["image"].to(device, non_blocking=True)
         label = batch["label"].to(device, non_blocking=True)
 
